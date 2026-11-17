@@ -6,6 +6,11 @@
   <title>Prompt Studio — neural gap detection × rule rubric</title>
   <meta name="description" content="A rough prompt in. A BiLSTM finds what is missing, a rule rubric grades it, and both merge into one better prompt.">
   <script>
+    // a refresh lands at the top instead of the browser restoring the last
+    // scrolled position (which the demo analysis used to leave at the results)
+    if (performance.getEntriesByType("navigation")[0]?.type === "reload" && "scrollRestoration" in history) {
+      history.scrollRestoration = "manual";
+    }
     // set the theme before first paint so a dark-mode visit never flashes light
     (function () {
       try {

@@ -57,7 +57,7 @@ async function loadExamples() {
 }
 
 /* ---------------------------------------------------------------- analyze */
-async function analyze() {
+async function analyze({ scroll = true } = {}) {
   const prompt = $("prompt").value.trim();
   if (!prompt) { showError("Type a prompt first — even three words are enough."); return; }
   showError("");
@@ -77,7 +77,7 @@ async function analyze() {
     results.hidden = false;
     playReveal(results, "is-fresh");
     $("run-status").textContent = `${Math.round(performance.now() - started)} ms`;
-    results.scrollIntoView({ behavior: motionOn() ? "smooth" : "auto", block: "start" });
+    if (scroll) results.scrollIntoView({ behavior: motionOn() ? "smooth" : "auto", block: "start" });
   } catch (err) {
     showError(`Analysis failed: ${err.message}`);
     $("run-status").textContent = "";
@@ -469,8 +469,23 @@ async function runOllama() {
 
 /* ------------------------------------------------------------------ init */
 document.addEventListener("DOMContentLoaded", async () => {
+  // a refresh always starts at the top; the demo analysis must not scroll.
+  // scroll-behavior is smooth in CSS, so override it to jump without animating
+  const nav = performance.getEntriesByType?.("navigation")?.[0];
+  if (nav?.type === "reload") {
+    const toTop = () => {
+      const root = document.documentElement;
+      const prev = root.style.scrollBehavior;
+      root.style.scrollBehavior = "auto";
+      window.scrollTo(0, 0);
+      root.style.scrollBehavior = prev;
+    };
+    toTop();
+    window.addEventListener("load", toTop, { once: true });
+  }
+
   setupTabs();
-  $("run").addEventListener("click", analyze);
+  $("run").addEventListener("click", () => analyze());
   $("copy").addEventListener("click", copyMerged);
   $("batch-run").addEventListener("click", runBatch);
   $("batch-download").addEventListener("click", downloadCsv);
@@ -487,6 +502,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (state.examples.length) {
     $("prompt").value = state.examples[0].text;
     $("batch-input").value = state.examples.slice(0, 4).map((e) => e.text).join("\n");
-    analyze();
+    analyze({ scroll: false });
   }
 });

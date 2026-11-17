@@ -932,3 +932,20 @@ html[data-motion="off"] *::after {
   /* stacked panels have no divider, so no asymmetric padding either */
   .split > .panel + .panel { padding-left: 0; }
 }
+
+/* questions: tag and text as two columns so wrapped lines stay aligned */
+.questions li {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.questions li b {
+  margin-right: 0;
+  justify-self: start;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* shared tag column so all question rows start their text on the same line */
+.questions li { grid-template-columns: 56px minmax(0, 1fr); }
