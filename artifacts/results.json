@@ -1,0 +1,78 @@
+{
+  "test": {
+    "TF-IDF + LogReg": {
+      "task_acc": 1.0,
+      "gap_macro_f1": 0.9994390767745323,
+      "gap_exact_match": 0.9966666666666667,
+      "per_label_f1": {
+        "context": 0.9995166747220879,
+        "audience": 1.0,
+        "constraints": 0.99812734082397,
+        "output_format": 0.9995513683266039,
+        "purpose": 1.0
+      }
+    },
+    "BiLSTM + attention": {
+      "task_acc": 1.0,
+      "gap_macro_f1": 0.9996325163742996,
+      "gap_exact_match": 0.9977777777777778,
+      "per_label_f1": {
+        "context": 1.0,
+        "audience": 0.9990800367985281,
+        "constraints": 0.9995311767463666,
+        "output_format": 0.9995513683266039,
+        "purpose": 1.0
+      }
+    },
+    "BiLSTM + rules (hybrid)": {
+      "task_acc": 1.0,
+      "gap_macro_f1": 0.9997222427089788,
+      "gap_exact_match": 0.9983333333333333,
+      "per_label_f1": {
+        "context": 1.0,
+        "audience": 0.9990800367985281,
+        "constraints": 0.9995311767463666,
+        "output_format": 1.0,
+        "purpose": 1.0
+      }
+    }
+  },
+  "manual_test": {
+    "TF-IDF + LogReg": {
+      "task_acc": 0.975,
+      "gap_macro_f1": 0.942937714396827,
+      "gap_exact_match": 0.75,
+      "per_label_f1": {
+        "context": 0.9577464788732394,
+        "audience": 0.9696969696969697,
+        "constraints": 0.8928571428571429,
+        "output_format": 0.9354838709677419,
+        "purpose": 0.958904109589041
+      }
+    },
+    "BiLSTM + attention": {
+      "task_acc": 0.95,
+      "gap_macro_f1": 0.9390880424060233,
+      "gap_exact_match": 0.725,
+      "per_label_f1": {
+        "context": 0.9855072463768116,
+        "audience": 0.9375,
+        "constraints": 0.8518518518518519,
+        "output_format": 0.9491525423728814,
+        "purpose": 0.9714285714285714
+      }
+    },
+    "BiLSTM + rules (hybrid)": {
+      "task_acc": 0.95,
+      "gap_macro_f1": 0.9390880424060233,
+      "gap_exact_match": 0.725,
+      "per_label_f1": {
+        "context": 0.9855072463768116,
+        "audience": 0.9375,
+        "constraints": 0.8518518518518519,
+        "output_format": 0.9491525423728814,
+        "purpose": 0.9714285714285714
+      }
+    }
+  }
+}

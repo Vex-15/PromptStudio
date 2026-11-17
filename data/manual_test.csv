@@ -1,0 +1,41 @@
+text,task,missing_context,missing_audience,missing_constraints,missing_output_format,missing_purpose
+write a python function to check if a number is prime,coding,1,1,1,1,1
+make a landing page,coding,1,1,1,1,1
+I'm a second year student building a chatbot for my college project. Write python code to load questions from a csv file using only pandas. Return just the code.,coding,0,1,0,0,1
+explain backpropagation,explanation,1,1,1,1,1
+Explain backpropagation to a first year student in under 200 words.,explanation,1,0,0,1,1
+summarize this article,summarization,1,1,1,1,1
+Summarize the following paper in five bullet points. I need it so that I can revise before my exam.,summarization,1,1,1,0,0
+write a blog post about remote work,writing,1,1,1,1,1
+Write a friendly blog post about remote work for busy managers. Keep it under 400 words.,writing,1,0,0,1,1
+draft an email to my professor asking for an extension,writing,1,1,1,1,1
+give me project ideas,brainstorming,1,1,1,1,1
+I'm in my final year and need a project idea around healthcare. Suggest five ideas as a numbered list. It should be doable in 2 months.,brainstorming,0,1,0,0,1
+compare lstm and gru,analysis,1,1,1,1,1
+Compare LSTM and GRU for a team of beginners. Present it as a table.,analysis,1,0,1,0,1
+analyze sales data,analysis,1,1,1,1,1
+what is a neural network,explanation,1,1,1,1,1
+how do i reverse a string in java,coding,1,1,1,1,1
+Write a cover letter for a data analyst role. Use a professional tone and keep it under 250 words.,writing,1,1,0,1,1
+suggest names for my coffee shop,brainstorming,1,1,1,1,1
+tldr of this long email thread,summarization,1,1,1,1,1
+"Explain how transformers work. I am preparing for an interview next week, so focus on the key ideas. Use bullet points.",explanation,1,1,0,0,0
+debug my javascript code,coding,1,1,1,1,1
+I'm building a REST API for my company's inventory app in Go. Write a handler that returns all items as JSON. Do not use any frameworks.,coding,0,1,0,0,1
+write a poem about rain,writing,1,1,1,1,1
+Write a story about a robot. The readers are children aged 8. Maximum 300 words.,writing,1,0,0,1,1
+give pros and cons of electric cars,analysis,1,1,1,1,1
+"Give pros and cons of electric cars in a table, aimed at first-time buyers.",analysis,1,0,1,0,1
+Brainstorm ideas for a hackathon about fraud detection. We are a team of four students and have 24 hours. Give me a list.,brainstorming,0,1,0,0,1
+teach me sql,explanation,1,1,1,1,1
+Explain gradient descent in simple words. I want to understand it before my viva.,explanation,1,1,0,1,0
+write a linkedin post about my new job,writing,1,1,1,1,1
+summarise the meeting notes for my manager in 3 bullet points,summarization,1,0,1,0,1
+review my code,analysis,1,1,1,1,1
+Review my resume. I am applying for machine learning internships and want to get shortlisted. Be honest and critical.,analysis,0,1,0,1,0
+create a python script to rename files,coding,1,1,1,1,1
+Create a Python script to rename all files in a folder by adding today's date as a prefix. It should not delete anything and must handle errors. Add comments.,coding,1,1,0,1,1
+what is overfitting and how to avoid it,explanation,1,1,1,1,1
+Hi! Could you explain overfitting to a non-technical manager in simple words? Use an example from everyday life and keep it short.,explanation,1,0,0,1,1
+ideas for youtube channel,brainstorming,1,1,1,1,1
+Condense this report into one paragraph for the board so they can decide quickly. Avoid jargon.,summarization,1,0,0,0,0

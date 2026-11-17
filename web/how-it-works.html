@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How Prompt Studio works — the full reference</title>
+  <meta name="description" content="Every layer of Prompt Studio: the BiLSTM gap detector, the rule rubric, the fusion step, scoring, human votes, evaluation, API and limits.">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("prompt-studio-theme");
+        var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = saved || (dark ? "dark" : "light");
+        var motion = localStorage.getItem("prompt-studio-motion");
+        var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        document.documentElement.dataset.motion = motion || (reduced ? "off" : "on");
+      } catch (e) { /* storage unavailable: CSS defaults apply */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@300..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/docs.css">
+</head>
+<body>
+<div class="page page--docs">
+
+  <header class="masthead masthead--docs">
+    <div class="masthead__row">
+      <div class="masthead__left">
+        <span class="stamp">Prompt&nbsp;Studio</span>
+        <nav class="nav" aria-label="Main">
+          <a class="nav__link" href="/">Studio</a>
+          <a class="nav__link is-current" href="/how-it-works" aria-current="page">How it works</a>
+        </nav>
+      </div>
+      <div class="masthead__tools">
+        <span class="masthead__meta">Reference · all layers</span>
+        <div class="masthead__buttons">
+          <button id="motion-toggle" class="theme-toggle" type="button" aria-pressed="true"
+                  title="Turn animations off">Motion on</button>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false"
+                  title="Switch to dark theme">Dark</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="docs__eyebrow">Under the hood</p>
+    <h1 class="masthead__title docs__title">
+      <span class="w-serif">How it</span><span class="w-script">works</span>
+    </h1>
+    <p class="masthead__lede">
+      A rough prompt goes in. One neural net and one rule rubric analyse it independently,
+      a fusion step merges what each found, and you decide whether the result is actually
+      better. No LLM rewrites anything.
+      <span class="w-hand">all local, all deterministic.</span>
+    </p>
+  </header>
+
+  <div class="docs__grid">
+    <nav class="toc" aria-label="Contents">
+      <p class="label-mono">Contents</p>
+      <a href="#overview">01 · Overview</a>
+      <a href="#problem">02 · The problem</a>
+      <a href="#neural">03 · Neural engine</a>
+      <a href="#rules">04 · Rule engine</a>
+      <a href="#fusion">05 · Fusion</a>
+      <a href="#scoring">06 · Score &amp; gaps</a>
+      <a href="#human">07 · Human in the loop</a>
+      <a href="#evaluation">08 · Evaluation</a>
+      <a href="#api">09 · API</a>
+      <a href="#files">10 · Files &amp; commands</a>
+      <a href="#limits">11 · Limits</a>
+    </nav>
+
+    <article class="prose">
+
+      <!-- ============================================================ 01 -->
+      <section id="overview">
+        <h2><span class="num">01</span>Overview</h2>
+        <p>
+          Prompt Studio is a local workshop for one job: turning a vague prompt into a
+          specific one. It runs two analysers that know different things, then fuses them.
+        </p>
+        <pre class="diagram">raw prompt
+   |
+   |-- rule engine (LangChain LCEL)  ->  score /100, diagnosis, structured rebuild
+   |-- neural engine (BiLSTM+attn)   ->  task class, 5 gap probabilities, templates
+   |
+   v
+fusion: pick the right backbone, one owner per section, dedupe, keep TASK verbatim
+   |
+   v
+merged prompt  +  re-grade by both engines  +  residual gaps  +  your vote</pre>
+        <p>
+          Three rules shape everything:
+        </p>
+        <ul>
+          <li><strong>The original prompt is never edited.</strong> It is kept verbatim as the
+            <code>TASK:</code> line; only missing parts are appended, so intent cannot drift.</li>
+          <li><strong>Nothing is guessed silently.</strong> Safe defaults are labelled as
+            assumptions; things only you know (context, purpose) become bracketed placeholders
+            and explicit questions.</li>
+          <li><strong>Every rewrite is explainable.</strong> The rule engine reports which
+            points it awarded, the neural engine reports per-part probabilities and attention
+            weights.</li>
+        </ul>
+        <p>
+          Everything runs in one Python process on <code>127.0.0.1:8000</code>. The trained
+          model (1.2&nbsp;MB) ships with the project, so there is no training step and no API
+          key. The only optional network feature is running the two prompts on a local Ollama
+          model for comparison.
+        </p>
+        <p><a class="btn" href="/">Open the studio <span class="btn__arrow">→</span></a></p>
+      </section>
+
+      <!-- ============================================================ 02 -->
+      <section id="problem">
+        <h2><span class="num">02</span>The problem it solves</h2>
+        <p>
+          Most weak prompts fail in the same five places. The project models exactly these as
+          five binary labels — one per part that can be missing:
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Gap</th><th>What is missing</th><th>Typical fix</th></tr></thead>
+            <tbody>
+              <tr><td><strong>context</strong></td><td>project, language, environment, background</td><td>assumed language or a placeholder</td></tr>
+              <tr><td><strong>audience</strong></td><td>who reads the output</td><td>a reader level, from your setting</td></tr>
+              <tr><td><strong>constraints</strong></td><td>limits, errors, style, exclusions</td><td>explicit constraints</td></tr>
+              <tr><td><strong>output_format</strong></td><td>shape of the answer</td><td>one code block, table, bullets…</td></tr>
+              <tr><td><strong>purpose</strong></td><td>what it is for</td><td>a placeholder + a question</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The two engines answer different questions about the same text. The rule engine asks
+          <em>“what is measurably absent, and what is measurably present?”</em> with regex
+          evidence and a weighted rubric. The neural engine asks <em>“what kind of request is
+          this, and which parts look absent in this kind of request?”</em> with a learned
+          classifier. Neither is sufficient alone: the rubric can be gamed by keywords but is
+          auditable; the classifier generalises across tasks but cannot explain a score.
+        </p>
+      </section>
+
+      <!-- ============================================================ 03 -->
+      <section id="neural">
+        <h2><span class="num">03</span>The neural engine</h2>
+        <p>
+          A bidirectional LSTM with attention pooling and two heads, trained from scratch on
+          synthetic prompts. Multi-task, because the task type and the missing parts inform
+          each other.
+        </p>
+        <pre class="diagram">tokens -> Embedding(100) -> BiLSTM(128) -> masked attention pooling
+                                                   |-- task head  6-way softmax
+                                                   |-- gap head   5 independent sigmoids
+                                                   '-- attention weights (explanation)</pre>
+
+        <h3>Data</h3>
+        <p>
+          <code>src/generate_dataset.py</code> builds prompts from a core task plus optional
+          components (context, audience, constraints, format, purpose). Labels come free: a
+          component that was not added is “missing”. It adds typos, casing changes and filler
+          so the model does not just memorise templates. Splits: train / val / test, plus
+          <code>data/manual_test.csv</code> — 40 hand-written, hand-labelled prompts that the
+          model never saw, which is the realistic number.
+        </p>
+
+        <h3>Text pipeline</h3>
+        <p>
+          Lowercase, keep <code>[a-z0-9']+</code> tokens, drop punctuation, truncate to 64
+          tokens. The vocabulary is built from training text with a minimum frequency of 2,
+          with <code>&lt;pad&gt;</code> and <code>&lt;unk&gt;</code> reserved. During training,
+          10% of tokens are randomly replaced with <code>&lt;unk&gt;</code> (word dropout) as
+          regularisation.
+        </p>
+
+        <h3>Hyperparameters</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>max tokens</td><td>64</td></tr>
+              <tr><td>embedding / hidden</td><td>100 / 128 per direction</td></tr>
+              <tr><td>dropout / word dropout</td><td>0.3 / 0.1</td></tr>
+              <tr><td>batch / epochs / patience</td><td>64 / 25 / 5 (early stop)</td></tr>
+              <tr><td>optimiser / lr</td><td>Adam / 2e-3, gradients clipped</td></tr>
+              <tr><td>gap threshold</td><td>0.5 probability</td></tr>
+              <tr><td>template confidence floor</td><td>0.70, else the generic template</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Training objective</h3>
+        <p>
+          A single shared encoder optimised on two losses at once: cross-entropy for the
+          six-way task classification and binary cross-entropy for each of the five gap
+          labels. The gap head is multi-label, not multi-class — a prompt can lack several
+          parts simultaneously.
+        </p>
+
+        <h3>Attention as explanation</h3>
+        <p>
+          Attention scores are masked so padding contributes nothing, then softmaxed across
+          tokens, giving weights that sum to 1. Those weights drive the pooling <em>and</em>
+          the UI heatmap: the words the model leaned on. They are a diagnostic view of the
+          model's focus, not a causal proof of its decision.
+        </p>
+
+        <h3>Rule safety net</h3>
+        <p>
+          Regexes can prove some parts are already present, so the hybrid removes those from
+          the model's “missing” list and reports the override. Evidence accepted:
+          a word/line limit (“under 200 words”) or a stated tone proves
+          <strong>constraints</strong>; a format phrase (“as a table”, “json”, “bullet
+          points”) proves <strong>output_format</strong>. This catches the model's confident
+          false positives without letting it invent evidence.
+        </p>
+
+        <h3>Templates</h3>
+        <p>
+          Each (task, gap) pair stores either a safe <strong>default</strong> — added, and
+          labelled as an assumption — or a <strong>placeholder</strong> in brackets, which also
+          becomes a question in the UI. Only the user knows context and purpose, so those are
+          always placeholders. If task confidence is below 0.70 the generic template is used
+          rather than applying a wrong task's advice.
+        </p>
+
+        <h3>Measured quality</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Test set</th><th>Model</th><th>Task acc</th><th>Gap macro-F1</th></tr></thead>
+            <tbody>
+              <tr><td>synthetic test</td><td>TF-IDF + LogReg</td><td>1.000</td><td>0.999</td></tr>
+              <tr><td>synthetic test</td><td>BiLSTM + attention</td><td>1.000</td><td>1.000</td></tr>
+              <tr><td>hand-written (40)</td><td>TF-IDF + LogReg</td><td>0.975</td><td>0.943</td></tr>
+              <tr><td>hand-written (40)</td><td>BiLSTM + attention</td><td>0.950</td><td>0.939</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          Read this honestly: the synthetic set is too easy to separate the models, and 40
+          hand-written prompts are too few to. The simple baseline is as good or slightly
+          better here. What the BiLSTM adds is word-order handling, shared learning across the
+          six tasks, and attention-based explanations — not a better score on this data.
+        </div>
+      </section>
+
+      <!-- ============================================================ 04 -->
+      <section id="rules">
+        <h2><span class="num">04</span>The rule engine</h2>
+        <p>
+          A deterministic grader and rebuilder for programming prompts, orchestrated with
+          LangChain's LCEL. Every stage is a <code>Runnable</code>; independent detectors run
+          in parallel through <code>RunnablePassthrough.assign</code>, and batch scoring uses
+          <code>.batch()</code>. No model is involved.
+        </p>
+        <pre class="diagram">prompt
+  |-- injection? --|-- intent? --|-- features? --|   (parallel assign)
+  v
+score (rubric) -> diagnose -> decide strategy -> rebuild -> re-score -> drift guard</pre>
+
+        <h3>Feature extraction</h3>
+        <p>
+          Scoring only ever sees checkable booleans and counts, never the raw text: language,
+          libraries, presence of code or an error message, filler count, vague words, number of
+          mixed tasks, contradictions, repetition, environment/version, data, purpose clues,
+          described inputs/outputs, concrete nouns, list structure, format cues, error
+          handling, performance, style, exclusions, reproducibility, tests.
+        </p>
+
+        <h3>Diagnosis</h3>
+        <p>
+          Issues come with a severity. High: injection patterns, too short to infer a task,
+          contradictory requirements, “fix this code” without code. Medium: no language, no
+          described inputs/outputs, no output format, no constraints, vague words, several
+          tasks in one request, unsupported guarantees, version-sensitive requests. Low:
+          filler and repetition. Questions are added only where the answer changes the result.
+        </p>
+
+        <h3>Strategy</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Score</th><th>Strategy</th><th>What happens</th></tr></thead>
+            <tbody>
+              <tr><td>&gt; 85</td><td><code>none</code></td><td>trimmed only; already strong</td></tr>
+              <tr><td>60 – 85</td><td><code>standard</code></td><td>targeted sections; only weak dimensions get text</td></tr>
+              <tr><td>&lt; 60</td><td><code>advanced</code></td><td>the above plus step decomposition and a validation section</td></tr>
+              <tr><td>any</td><td><code>basic</code> (manual)</td><td>compression only: filler removed, spacing fixed</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Rebuild and drift guard</h3>
+        <p>
+          The rebuild keeps your task text as the <code>TASK</code> section, adds a
+          <code>CONTEXT</code> (assumed language if none was named, plus the reader level),
+          <code>REQUIREMENTS</code> for the detected intent, <code>CONSTRAINTS</code> including
+          “use only real, documented APIs”, and <code>OUTPUT FORMAT</code>. The merged text is
+          re-scored, then a drift guard checks that at least 90% of the key terms survived, the
+          intent is unchanged, and no injection pattern is present. Tokens are estimated at
+          four characters per token.
+        </p>
+      </section>
+
+      <!-- ============================================================ 05 -->
+      <section id="fusion">
+        <h2><span class="num">05</span>Fusion: how the two become one</h2>
+        <p>
+          The rule engine only knows how to rewrite <em>coding</em> prompts. The neural
+          classifier is what tells fusion whether that rewrite applies — so a story prompt
+          never receives “state the function signature”.
+        </p>
+        <ol>
+          <li><strong>Run the rule engine</strong> for a score, a diagnosis and structured
+            sections.</li>
+          <li><strong>Run the neural engine</strong> for task class, gap probabilities and
+            per-task additions.</li>
+          <li><strong>Choose a backbone.</strong> Rule rubric if the neural task is
+            <code>coding</code> or the rule intent is debug / refactor / test; otherwise the
+            neural templates drive.</li>
+          <li><strong>Merge section by section</strong> (table below). One owner per section:
+            two competing output-format instructions in one prompt is worse than one.</li>
+          <li><strong>Dedupe.</strong> A new line is dropped if it is a near-duplicate of an
+            existing one (token-set Jaccard similarity above 0.5).</li>
+          <li><strong>Re-grade both engines</strong> on the merged text to report the score
+            after fusion and any gap still open.</li>
+        </ol>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Section</th><th>Who supplies it</th><th>Rule</th></tr></thead>
+            <tbody>
+              <tr><td><code>TASK</code></td><td>you</td><td>always the original prompt, verbatim</td></tr>
+              <tr><td><code>CONTEXT</code></td><td>both</td><td>rule context plus neural context if not a duplicate</td></tr>
+              <tr><td><code>AUDIENCE</code></td><td>neural</td><td>skipped when the rule engine's “Reader:” line already exists</td></tr>
+              <tr><td><code>REQUIREMENTS</code></td><td>rule (or fusion)</td><td>rule wins; advanced adds a step-decomposition line</td></tr>
+              <tr><td><code>CONSTRAINTS</code></td><td>rule (or neural)</td><td>rule wins if it produced constraints, else neural</td></tr>
+              <tr><td><code>OUTPUT FORMAT</code></td><td>rule (or neural)</td><td>one consistent spec, never both</td></tr>
+              <tr><td><code>PURPOSE</code></td><td>neural</td><td>placeholder + question</td></tr>
+              <tr><td><code>VALIDATION</code></td><td>fusion</td><td>advanced mode only</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Worked example</h3>
+        <p>
+          Input: <code>write python code for student marks</code>. The neural classifier says
+          <em>coding</em> (70% confidence); the rule engine scores it 40/100 and detects the
+          code-generation intent. The rule backbone supplies the sections, and fusion reports
+          <strong>40 → 80</strong>, three of five gaps addressed, about 9 → 204 estimated
+          tokens. Purpose stays open because neither engine can know it:
+        </p>
+        <pre class="diagram">TASK:
+write python code for student marks
+
+CONTEXT:
+- Reader: working developer; keep explanation brief and precise
+
+REQUIREMENTS:
+1. State the function or module signature with input and output types before the code.
+2. Include one short usage example.
+3. Work in steps: restate the problem and assumptions, outline the approach, write the
+   code, then check it against 2-3 examples.
+4. Include 3 test cases.
+
+CONSTRAINTS:
+- Handle invalid input and errors explicitly.
+- Use only real, documented APIs. If unsure a function exists, say so instead of inventing it.
+- Add concise comments; avoid unexplained external dependencies.
+
+OUTPUT FORMAT:
+- One runnable code block, then a short explanation (max ~150 words).
+
+VALIDATION:
+- Re-check the result against every requirement above and list anything you could not meet.</pre>
+        <p>
+          A non-coding prompt such as <code>write something about ai in education</code> flips
+          the backbone: the classifier says <em>writing</em>, so the writing templates supply
+          context, audience and purpose placeholders and no code advice appears. With
+          <code>basic</code> mode fusion only compresses — useful when you want a trim, not a
+          rewrite.
+        </p>
+      </section>
+
+      <!-- ============================================================ 06 -->
+      <section id="scoring">
+        <h2><span class="num">06</span>The score and the gap model</h2>
+        <p>
+          The 100-point rubric is deliberately mechanical: every point is earned by a specific,
+          checkable feature. It is a heuristic, not a validated human rating.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Dimension</th><th>Max</th><th>Earned by</th></tr></thead>
+            <tbody>
+              <tr><td>clarity</td><td>20</td><td>≥3 words (6), an action verb (6), few vague words (up to 4), a single task (4), contradictions −6</td></tr>
+              <tr><td>context</td><td>20</td><td>language 8, library 5, environment 3, purpose or data 4</td></tr>
+              <tr><td>specificity</td><td>20</td><td>inputs/outputs 6, concrete terms 5, list structure 5, length 4</td></tr>
+              <tr><td>output</td><td>15</td><td>format cues ×5 each, capped at 15</td></tr>
+              <tr><td>constraints</td><td>15</td><td>errors 4, performance 3, style 3, exclusions 3, reproducibility 3, tests 2</td></tr>
+              <tr><td>efficiency</td><td>10</td><td>10 − 2×filler, − repetition, − over-long prompts</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>What the gap probabilities mean</h3>
+        <p>
+          Each of the five parts gets an independent sigmoid: the probability that the part is
+          <em>missing</em>. Above 0.5 it counts as missing; the UI shows the raw value so you
+          can see marginal calls. The gap head is trained on synthetic labels, so treat the
+          numbers as signals from a small model, not calibrated probabilities.
+        </p>
+
+        <h3>Task classes</h3>
+        <p>
+          <code>coding</code>, <code>writing</code>, <code>summarization</code>,
+          <code>explanation</code>, <code>analysis</code>, <code>brainstorming</code>. The
+          class selects the template set, and it is the gate that decides whether the rule
+          engine's coding structure is appropriate.
+        </p>
+      </section>
+
+      <!-- ============================================================ 07 -->
+      <section id="human">
+        <h2><span class="num">07</span>Human in the loop</h2>
+        <p>
+          Scoring is automated; preference is not. Every analysis ends with the original and
+          the merged prompt side by side — scores, estimated tokens, open gaps and the change
+          list — and an <strong>“I’d use this”</strong> button on each card.
+        </p>
+        <ul>
+          <li>One vote per analysis, so repeated clicks cannot inflate the tally.</li>
+          <li>The choice is appended to <code>artifacts/preferences.jsonl</code>, one JSON
+            object per line: prompt, merged text, choice, both scores, driving engine, timestamp.</li>
+          <li>A running tally is shown under the comparison and reloaded on start; delete the
+            file to reset it.</li>
+          <li>Votes are local and are not used to retrain or re-score anything.</li>
+        </ul>
+        <p>
+          This answers a different question from the rubric. The rubric says whether the
+          merged prompt satisfies the rubric; the votes say whether a person would send it.
+        </p>
+      </section>
+
+      <!-- ============================================================ 08 -->
+      <section id="evaluation">
+        <h2><span class="num">08</span>Measuring the fusion</h2>
+        <p>
+          <code>python -m src.evaluate_fusion</code> runs original → merged for every prompt in
+          a set, re-grades with both engines, and writes
+          <code>artifacts/fusion_results.md</code> plus JSON. Measured on the 40 hand-written
+          prompts (mode <code>auto</code>, level <code>developer</code>):
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Metric</th><th>Result</th></tr></thead>
+            <tbody>
+              <tr><td>average score</td><td><strong>35.45 → 63.17</strong> / 100</td></tr>
+              <tr><td>average gain</td><td>+27.73 (median +27.5, range +11 to +52)</td></tr>
+              <tr><td>improved / unchanged / regressed</td><td>40 / 0 / 0</td></tr>
+              <tr><td>intent preserved</td><td>40 / 40 (100%)</td></tr>
+              <tr><td>estimated tokens</td><td>16.1 → 155.0 (20.35×)</td></tr>
+              <tr><td>gaps addressed</td><td>3.02 / 5 (1.02 still open)</td></tr>
+              <tr><td>engine split</td><td>neural 31, rule rubric 9</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          By detected task: coding +31.3, analysis +29.1, brainstorming +27.7, explanation
+          +27.3, writing +25.7, summarization +24.4 (average gain).
+        </p>
+        <div class="callout">
+          The rubric that scores “after” is the same one whose diagnosis drives the rewrite, so
+          part of the gain is self-fulfilling. Key-term coverage is 100% by construction,
+          because the original prompt is always included as <code>TASK</code>. The 20× token
+          growth is a real cost. Read the gain as “satisfies the rubric much better”, and use
+          the human votes for the other question.
+        </div>
+      </section>
+
+      <!-- ============================================================ 09 -->
+      <section id="api">
+        <h2><span class="num">09</span>API</h2>
+        <p>
+          The frontend is static HTML/CSS/JS served by FastAPI; every interaction is a JSON
+          request. No authentication, because the server binds to loopback only.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Body / returns</th></tr></thead>
+            <tbody>
+              <tr><td>GET</td><td><code>/</code></td><td>the studio page</td></tr>
+              <tr><td>GET</td><td><code>/how-it-works</code></td><td>this page</td></tr>
+              <tr><td>GET</td><td><code>/api/health</code></td><td>model availability</td></tr>
+              <tr><td>GET</td><td><code>/api/examples</code></td><td>example prompts</td></tr>
+              <tr><td>POST</td><td><code>/api/analyze</code></td><td><code>{prompt, mode, level}</code> → combined, score, neural, rubric</td></tr>
+              <tr><td>POST</td><td><code>/api/batch</code></td><td><code>{prompts[], mode, level}</code> → rows + summary</td></tr>
+              <tr><td>GET</td><td><code>/api/preferences</code></td><td><code>{tally, recent}</code></td></tr>
+              <tr><td>POST</td><td><code>/api/preference</code></td><td><code>{prompt, merged, choice, score_before, score_after, engine}</code></td></tr>
+              <tr><td>POST</td><td><code>/api/ollama</code></td><td><code>{prompt, optimized, model, base_url}</code> → two responses</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre class="diagram">curl -s -X POST http://127.0.0.1:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "write python code for student marks", "mode": "auto", "level": "developer"}'</pre>
+        <p>
+          The response carries <code>combined</code> (text, sections with their source,
+          addressed and residual gaps), <code>score</code> (before/after/delta and both
+          dimension vectors), <code>neural</code> (task, confidence, task probabilities, gap
+          probabilities, attention, tokens, its own rewrite) and <code>rubric</code>
+          (dimensions, issues, questions, changes, drift, tokens, versions, its own rewrite).
+        </p>
+      </section>
+
+      <!-- ============================================================ 10 -->
+      <section id="files">
+        <h2><span class="num">10</span>Files, commands, interface</h2>
+        <pre class="diagram">prompt-studio/
+├── server.py             FastAPI app and JSON API
+├── run.py                uvicorn launcher on 127.0.0.1:8000
+├── web/
+│   ├── index.html        the studio page
+│   ├── how-it-works.html this reference
+│   ├── styles.css        shared design system, dark theme, motion
+│   ├── docs.css          article styles for this page
+│   ├── theme.js          theme + motion controls (shared)
+│   └── app.js            studio interactivity
+├── src/
+│   ├── combined.py       fusion layer, analyze_prompt / batch_analyze
+│   ├── rubric.py         rule engine: rubric, diagnosis, rebuild, drift
+│   ├── enhancer.py       neural enhancer + CLI
+│   ├── model.py          BiLSTM + attention, two heads
+│   ├── data.py           tokenizer, vocab, dataset, batching
+│   ├── slots.py          regex evidence / rule safety net
+│   ├── templates.py      per-task rewrite templates
+│   ├── config.py         shared constants
+│   ├── train.py          training loop (CE + BCE, early stopping)
+│   ├── baseline.py       TF-IDF + logistic regression baseline
+│   ├── evaluate.py       baseline vs BiLSTM comparison, plots
+│   ├── evaluate_fusion.py fusion gain / intent / token report
+│   ├── preferences.py    the local vote store
+│   └── generate_dataset.py synthetic prompt generator
+├── data/                 train, val, test, 40 manual prompts
+├── artifacts/            model.pt, vocab.json, plots, results, votes
+└── tests/                sanity + fusion + preference tests</pre>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Command</th><th>Does</th></tr></thead>
+            <tbody>
+              <tr><td><code>py run.py</code></td><td>start the app on port 8000</td></tr>
+              <tr><td><code>py -m pytest -q</code></td><td>test suite</td></tr>
+              <tr><td><code>py -m src.evaluate_fusion</code></td><td>fusion gain, intent, token report</td></tr>
+              <tr><td><code>py -m src.evaluate</code></td><td>baseline vs BiLSTM metrics and plots</td></tr>
+              <tr><td><code>py -m src.train</code></td><td>retrain and overwrite the model</td></tr>
+              <tr><td><code>py -m src.enhancer "…"</code></td><td>neural rewrite from the terminal</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The interface uses four typefaces on purpose — Fraunces for display, Space Grotesk
+          for UI, JetBrains Mono for prompts and data, Caveat for handwritten accents — with a
+          light/dark theme that follows the system until you choose, and a Motion toggle that
+          turns every animation off instantly.
+        </p>
+      </section>
+
+      <!-- ============================================================ 11 -->
+      <section id="limits">
+        <h2><span class="num">11</span>Limits and honest notes</h2>
+        <ul>
+          <li><strong>Synthetic training data.</strong> The neural model learned from generated
+            prompts; <code>manual_test.csv</code> is the realistic number, and 40 prompts is
+            small.</li>
+          <li><strong>Templates, not generation.</strong> Rewrites are assembled from fixed
+            templates and rules, so output is consistent rather than creative.</li>
+          <li><strong>The rubric is a heuristic.</strong> It favours the sections the rewriter
+            adds, which is why the automatic gain needs the human votes beside it.</li>
+          <li><strong>Short prompts only.</strong> The model truncates at 64 tokens; long
+            briefs lose information before classification.</li>
+          <li><strong>English patterns.</strong> Rule vocabularies, language detection and
+            templates are English-oriented.</li>
+          <li><strong>Injection detection is a warning.</strong> The regex catches common
+            “ignore previous instructions” patterns; it is not a security boundary.</li>
+          <li><strong>Local by default.</strong> The only outbound calls are the optional
+            Ollama request to <code>localhost:11434</code> and Google Fonts for typography.</li>
+        </ul>
+        <p><a class="btn" href="/">Back to the studio <span class="btn__arrow">→</span></a></p>
+      </section>
+
+    </article>
+  </div>
+
+  <footer class="footer">
+    <span>Prompt Studio — BiLSTM + attention × LCEL rubric, fused</span>
+    <span class="w-hand">read the numbers, not the promise</span>
+  </footer>
+</div>
+<script src="/static/theme.js"></script>
+</body>
+</html>

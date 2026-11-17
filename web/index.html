@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prompt Studio — neural gap detection × rule rubric</title>
+  <meta name="description" content="A rough prompt in. A BiLSTM finds what is missing, a rule rubric grades it, and both merge into one better prompt.">
+  <script>
+    // set the theme before first paint so a dark-mode visit never flashes light
+    (function () {
+      try {
+        var saved = localStorage.getItem("prompt-studio-theme");
+        var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = saved || (dark ? "dark" : "light");
+
+        var motion = localStorage.getItem("prompt-studio-motion");
+        var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        document.documentElement.dataset.motion = motion || (reduced ? "off" : "on");
+      } catch (e) { /* storage unavailable: CSS default applies */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@300..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div class="masthead__row">
+      <div class="masthead__left">
+        <span class="stamp">Prompt&nbsp;Studio</span>
+        <nav class="nav" aria-label="Main">
+          <a class="nav__link is-current" href="/" aria-current="page">Studio</a>
+          <a class="nav__link" href="/how-it-works">How it works</a>
+        </nav>
+      </div>
+      <div class="masthead__tools">
+        <span class="masthead__meta">BiLSTM · attention · LCEL rubric</span>
+        <div class="masthead__buttons">
+          <button id="motion-toggle" class="theme-toggle" type="button" aria-pressed="true"
+                  title="Turn animations off">Motion on</button>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false"
+                  title="Switch to dark theme">Dark</button>
+        </div>
+      </div>
+    </div>
+    <h1 class="masthead__title">
+      <span class="w-serif">Prompt</span><span class="w-script">studio</span>
+    </h1>
+    <p class="masthead__lede">
+      Paste a rough prompt. A neural net names what is missing, a rule rubric grades it
+      out of 100, and the two merge into one better prompt.
+      <span class="w-hand">No LLM rewrites it.</span>
+    </p>
+  </header>
+
+  <main>
+    <!-- ============================================================ composer -->
+    <section class="composer-block" aria-labelledby="composer-title">
+      <div class="composer__head">
+        <h2 id="composer-title" class="label-mono">01 — the prompt</h2>
+        <span class="hint">paste anything, however rough</span>
+      </div>
+
+      <div class="composer">
+        <textarea id="prompt" class="textarea" spellcheck="false"
+          placeholder="e.g. write python code for student marks"></textarea>
+
+        <div id="examples" class="examples" aria-label="Example prompts"></div>
+
+        <div class="controls">
+          <label class="field">
+            <span>Mode</span>
+            <select id="mode">
+              <option value="auto">auto</option>
+              <option value="basic">basic</option>
+              <option value="standard">standard</option>
+              <option value="advanced">advanced</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Reader</span>
+            <select id="level">
+              <option value="developer">developer</option>
+              <option value="beginner">beginner</option>
+            </select>
+          </label>
+          <button id="run" class="btn" type="button">
+            Enhance prompt <span class="btn__arrow">→</span>
+          </button>
+          <span id="run-status" class="hint hint--right"></span>
+        </div>
+        <p id="error" class="error" role="alert" hidden></p>
+      </div>
+    </section>
+
+    <!-- ============================================================= results -->
+    <section id="results" class="results" hidden>
+      <div class="scoreboard">
+        <div class="score">
+          <span class="label-mono">grade before</span>
+          <div class="score__line"><strong id="score-before">–</strong><span class="score__sub">/100</span></div>
+        </div>
+        <div class="score__arrow" aria-hidden="true">→</div>
+        <div class="score">
+          <span class="label-mono">after fusion</span>
+          <div class="score__line"><strong id="score-after">–</strong><span id="score-delta" class="delta">–</span></div>
+        </div>
+        <dl class="scoreboard__meta">
+          <div><dt class="label-mono">task</dt><dd id="meta-task">–</dd></div>
+          <div><dt class="label-mono">intent</dt><dd id="meta-intent">–</dd></div>
+          <div><dt class="label-mono">engine</dt><dd id="meta-engine">–</dd></div>
+          <div><dt class="label-mono">tokens</dt><dd id="meta-tokens">–</dd></div>
+        </dl>
+      </div>
+
+      <div class="split">
+        <div class="panel">
+          <h3 class="label-mono">02 — what the model saw</h3>
+          <p id="task-note" class="panel__note"></p>
+          <div id="gaps" class="gaps"></div>
+          <p id="rule-overrides" class="aside-note" hidden></p>
+          <h4 class="label-mono label-mono--quiet">attention heatmap</h4>
+          <div id="heat" class="heat"></div>
+          <p class="hint hint--tight">darker = words the BiLSTM leaned on</p>
+        </div>
+
+        <div class="panel">
+          <h3 class="label-mono">03 — diagnosis</h3>
+          <div id="issues" class="issues"></div>
+          <div id="questions" class="questions"></div>
+          <div id="drift" class="drift"></div>
+        </div>
+      </div>
+
+      <!-- =========================================================== output -->
+      <section class="output" aria-labelledby="output-title">
+        <div class="output__head">
+          <h3 id="output-title" class="label-mono">04 — the merged prompt</h3>
+          <div class="output__actions">
+            <span id="gaps-closed" class="hint"></span>
+            <button id="copy" class="btn btn--ghost" type="button">Copy</button>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Prompt versions">
+          <button class="tab is-active" role="tab" data-tab="combined" aria-selected="true">Combined</button>
+          <button class="tab" role="tab" data-tab="rubric" aria-selected="false">Rule rubric</button>
+          <button class="tab" role="tab" data-tab="neural" aria-selected="false">Neural</button>
+          <button class="tab" role="tab" data-tab="versions" aria-selected="false">Versions</button>
+        </div>
+
+        <div class="tabpanel" id="panel-combined" role="tabpanel">
+          <pre id="out-combined" class="code"></pre>
+          <div class="output__foot">
+            <p id="remaining" class="remaining"></p>
+            <div id="sections" class="sections"></div>
+          </div>
+        </div>
+
+        <div class="tabpanel" id="panel-rubric" role="tabpanel" hidden>
+          <pre id="out-rubric" class="code"></pre>
+          <p class="hint">Rule engine only: rubric-driven rebuild of a coding prompt.</p>
+          <ul id="changes" class="changes"></ul>
+        </div>
+
+        <div class="tabpanel" id="panel-neural" role="tabpanel" hidden>
+          <pre id="out-neural" class="code"></pre>
+          <p class="hint">Neural engine only: template rewrite from detected task + gaps.</p>
+        </div>
+
+        <div class="tabpanel" id="panel-versions" role="tabpanel" hidden>
+          <div id="versions" class="versions"></div>
+        </div>
+      </section>
+
+      <!-- ======================================================== comparison -->
+      <section class="compare" aria-labelledby="compare-title">
+        <div class="composer__head">
+          <h2 id="compare-title" class="label-mono">05 — old vs new, your call</h2>
+          <span class="hint">same task, two prompts — which one would you send?</span>
+        </div>
+
+        <div class="compare__grid">
+          <article class="compare-card" id="card-original">
+            <header class="compare-card__head">
+              <h3>Original</h3>
+              <span class="compare-card__score" id="cmp-original-score">–</span>
+            </header>
+            <pre class="code code--paper" id="cmp-original-text"></pre>
+            <p class="compare-card__meta" id="cmp-original-meta"></p>
+            <button class="prefer" type="button" data-choice="original" aria-pressed="false">I'd use this</button>
+          </article>
+
+          <article class="compare-card compare-card--new" id="card-merged">
+            <header class="compare-card__head">
+              <h3>Merged</h3>
+              <span class="compare-card__score compare-card__score--new" id="cmp-merged-score">–</span>
+            </header>
+            <pre class="code code--paper" id="cmp-merged-text"></pre>
+            <p class="compare-card__meta" id="cmp-merged-meta"></p>
+            <button class="prefer prefer--new" type="button" data-choice="merged" aria-pressed="false">I'd use this</button>
+          </article>
+        </div>
+
+        <div class="compare__changes">
+          <h4 class="label-mono label-mono--quiet">what changed</h4>
+          <ul id="cmp-changes" class="changes"></ul>
+        </div>
+
+        <div class="vote">
+          <p id="vote-status" class="vote__status" role="status"></p>
+          <p id="vote-tally" class="hint">No votes yet — pick one and it is saved locally.</p>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============================================================== batch -->
+    <section class="batch-block" id="batch" aria-labelledby="batch-title">
+      <div class="composer__head">
+        <h2 id="batch-title" class="label-mono">06 — batch benchmark</h2>
+        <span class="hint">one prompt per line, scored together</span>
+      </div>
+      <div class="batch">
+        <textarea id="batch-input" class="textarea textarea--small" spellcheck="false"
+          placeholder="write python code for student marks&#10;fix my code, it is not working&#10;summarise this article for my team"></textarea>
+        <div class="controls">
+          <button id="batch-run" class="btn" type="button">Run benchmark</button>
+          <button id="batch-download" class="btn btn--ghost" type="button" disabled>Download CSV</button>
+          <span id="batch-status" class="hint hint--right"></span>
+        </div>
+        <div id="batch-summary" class="metrics" hidden></div>
+        <div id="batch-table" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ optional -->
+    <details class="ollama">
+      <summary class="label-mono">Optional — run both prompts on your local Ollama model</summary>
+      <p class="hint">Needs Ollama running and the model pulled (<code>ollama pull llama3.2</code>). Nothing leaves your machine.</p>
+      <div class="controls">
+        <label class="field">
+          <span>Model</span>
+          <input id="ollama-model" value="llama3.2" spellcheck="false">
+        </label>
+        <label class="field field--wide">
+          <span>URL</span>
+          <input id="ollama-url" value="http://localhost:11434" spellcheck="false">
+        </label>
+        <button id="ollama-run" class="btn" type="button">Run both</button>
+        <span id="ollama-status" class="hint hint--right"></span>
+      </div>
+      <div id="ollama-out" class="ollama__out"></div>
+    </details>
+  </main>
+
+  <footer class="footer">
+    <span>Prompt Studio — Prompt Enhancer (BiLSTM + attention) × Prompt Optimizer (rule rubric, LangChain LCEL)</span>
+    <span class="w-hand">made for clearer prompts</span>
+  </footer>
+</div>
+<script src="/static/theme.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+[project]
+name = "prompt-studio"
+version = "1.0.0"
+description = "Neural gap detection + rule-based prompt rubric in one studio"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "torch>=2.2",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "matplotlib",
+    "langchain-core>=1.7.0",
+    "langchain-ollama>=1.1.0",
+    "pytest",
+]
